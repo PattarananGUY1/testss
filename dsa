@@ -4,18 +4,18 @@ import re
 
 app = Flask(__name__)
 
-# Create scraper with Tor proxy
-scraper = cloudscraper.create_scraper(
-    proxies={
-        "http": "socks5h://127.0.0.1:9050",
-        "https": "socks5h://127.0.0.1:9050"
-    }
-)
+# Create scraper normally
+scraper = cloudscraper.create_scraper()
+
+# Apply Tor proxy AFTER creation
+scraper.proxies.update({
+    "http": "socks5h://127.0.0.1:9050",
+    "https": "socks5h://127.0.0.1:9050"
+})
 
 def parse_student_info(html_content):
     clean_html = html_content.replace('\n', ' ')
 
-    # Extract Full Name
     name_match = re.search(
         r'ชื่อ - นามสกุล[\s\S]*?<div[^>]*>(.*?)</div>',
         clean_html,
@@ -27,7 +27,6 @@ def parse_student_info(html_content):
         full_name = name_match.group(1).replace('&nbsp;', ' ')
         full_name = re.sub(r'\s+', ' ', full_name).strip()
 
-    # Extract Class Name
     class_name = None
     row_match = re.search(
         r'<tr>[\s\S]*?ชั้น ม\.[\s\S]*?</tr>',
@@ -60,7 +59,6 @@ def get_data():
         response = scraper.get(url, timeout=30)
 
         result = parse_student_info(response.text)
-
         return jsonify(result)
 
     except Exception as e:
