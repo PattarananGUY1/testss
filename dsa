@@ -7,7 +7,6 @@ app = Flask(__name__)
 # Create scraper normally
 scraper = cloudscraper.create_scraper()
 
-# Apply Tor proxy AFTER creation
 scraper.proxies.update({
     "http": "socks5h://127.0.0.1:9050",
     "https": "socks5h://127.0.0.1:9050"
