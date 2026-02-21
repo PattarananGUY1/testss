@@ -1,24 +1,35 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS # Added to prevent Worker-side blocks
 import cloudscraper
 import re
+import sys
 
 app = Flask(__name__)
-scraper = cloudscraper.create_scraper()
+CORS(app) # Allows your Cloudflare Worker to talk to this server without issues
+
+# Initialize scraper with a specific browser to look more human
+scraper = cloudscraper.create_scraper(
+    browser={
+        'browser': 'chrome',
+        'platform': 'windows',
+        'desktop': True
+    }
+)
 
 def parse_student_info(html_content):
-    # Remove newlines to match your JS cleanHtml logic
     clean_html = html_content.replace('\n', ' ')
+    
+    # Debug: Print a small snippet of HTML to see if we actually got a page or a block screen
+    print(f"--- HTML Snippet (First 500 chars) ---")
+    print(clean_html[:500])
+    print(f"---------------------------------------")
 
-    # Extract Full Name
-    # Matches: ชื่อ - นามสกุล followed by a <div> containing the name
     name_match = re.search(r'ชื่อ - นามสกุล[\s\S]*?<div[^>]*>(.*?)</div>', clean_html, re.IGNORECASE)
     full_name = None
     if name_match:
         full_name = name_match.group(1).replace('&nbsp;', ' ')
         full_name = re.sub(r'\s+', ' ', full_name).strip()
 
-    # Extract Class Name
-    # Matches: <tr> containing "ชั้น ม." and then extracts the <span> content
     class_name = None
     row_match = re.search(r'<tr>[\s\S]*?ชั้น ม\.[\s\S]*?</tr>', clean_html, re.IGNORECASE)
     if row_match:
@@ -33,20 +44,38 @@ def parse_student_info(html_content):
 @app.route('/fetch', methods=['GET'])
 def get_data():
     std_id = request.args.get('id')
+    
+    # Debug: Track incoming request
+    print(f"\n[INCOMING] Request for ID: {std_id}")
+    print(f"[HEADERS] {dict(request.headers)}")
+
     if not std_id or len(std_id) != 13:
+        print(f"[ERROR] Invalid ID length: {len(std_id) if std_id else 0}")
         return jsonify({"error": "Invalid 13-digit ID"}), 400
 
     try:
         url = f"https://psis.me/report_print/std_detail.php?idm={std_id}"
+        print(f"[SCRAPE] Fetching URL: {url}")
+        
         response = scraper.get(url)
         
-        # Parse the HTML using the function above
+        # Debug: Check the status of the outgoing scrape
+        print(f"[SCRAPE] Status Code: {response.status_code}")
+        
+        if response.status_code == 403:
+            print("[CRITICAL] Target website BLOCKED this server IP!")
+            return jsonify({"error": "Target website blocked the scraper (403)"}), 403
+
+        # Parse the HTML
         result = parse_student_info(response.text)
         
+        print(f"[SUCCESS] Parsed Data: {result}")
         return jsonify(result)
+
     except Exception as e:
+        print(f"[EXCEPTION] {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    # Change from 127.0.0.1 to 0.0.0.0 to listen on all network interfaces
-    app.run(host='0.0.0.0', port=5000)
+    print("Starting Flask Server on port 5000...")
+    app.run(host='0.0.0.0', port=5000, debug=True)
