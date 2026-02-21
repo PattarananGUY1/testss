@@ -1,21 +1,58 @@
-
+from flask import Flask, request, jsonify
 import cloudscraper
+import re
 
-# Create a CloudScraper instance (mimics browser behavior)
+app = Flask(__name__)
 scraper = cloudscraper.create_scraper()
 
-# Set up your proxy
 proxy = {
     'http': 'http://dc798f3a3964a609e01a__cr.th;state.buriram;city.buriram;zip.31180;asn.17552:4abe1cf42087944d@gw.dataimpulse.com:10000',
     'https': 'http://dc798f3a3964a609e01a__cr.th;state.buriram;city.buriram;zip.31180;asn.17552:4abe1cf42087944d@gw.dataimpulse.com:10000'
 }
 
-# Target a Cloudflare-protected website (example below: change as needed)
-url = 'https://psis.me/report_print/std_detail.php?idm=1309903765270'
 
-# Send the request through the proxy
-response = scraper.get(url, proxies=proxy)
+def parse_student_info(html_content):
+    # Remove newlines to match your JS cleanHtml logic
+    clean_html = html_content.replace('\n', ' ')
 
-# Output the response
-print(response.status_code)
-print(response.text)  # print only the first 500 characters()
+    # Extract Full Name
+    # Matches: ชื่อ - นามสกุล followed by a <div> containing the name
+    name_match = re.search(r'ชื่อ - นามสกุล[\s\S]*?<div[^>]*>(.*?)</div>', clean_html, re.IGNORECASE)
+    full_name = None
+    if name_match:
+        full_name = name_match.group(1).replace('&nbsp;', ' ')
+        full_name = re.sub(r'\s+', ' ', full_name).strip()
+
+    # Extract Class Name
+    # Matches: <tr> containing "ชั้น ม." and then extracts the <span> content
+    class_name = None
+    row_match = re.search(r'<tr>[\s\S]*?ชั้น ม\.[\s\S]*?</tr>', clean_html, re.IGNORECASE)
+    if row_match:
+        span_match = re.search(r'<span[^>]*>(.*?)</span>', row_match.group(0), re.IGNORECASE)
+        if span_match:
+            class_name = span_match.group(1).replace('&nbsp;', ' ')
+            class_name = re.sub(r'\s+', ' ', class_name).strip()
+            class_name = class_name.replace(' / ', '/')
+
+    return {"fullName": full_name, "className": class_name}
+
+@app.route('/fetch', methods=['GET'])
+def get_data():
+    std_id = request.args.get('id')
+    if not std_id or len(std_id) != 13:
+        return jsonify({"error": "Invalid 13-digit ID"}), 400
+
+    try:
+        url = f"https://psis.me/report_print/std_detail.php?idm={std_id}"
+        response = scraper.get(url, proxies=proxy)
+        print(response)
+        # Parse the HTML using the function above
+        result = parse_student_info(response.text)
+        
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+if __name__ == '__main__':
+    # Change from 127.0.0.1 to 0.0.0.0 to listen on all network interfaces
+    app.run(host='0.0.0.0', port=5000)
