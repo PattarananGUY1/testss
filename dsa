@@ -1,43 +1,30 @@
 from flask import Flask, request, jsonify
-from flask_cors import CORS # Added to prevent Worker-side blocks
-import cloudscraper
+from flask_cors import CORS
+from curl_cffi import requests # Upgraded library
 import re
-import sys
 
 app = Flask(__name__)
-CORS(app) # Allows your Cloudflare Worker to talk to this server without issues
-
-# Initialize scraper with a specific browser to look more human
-scraper = cloudscraper.create_scraper(
-    browser={
-        'browser': 'chrome',
-        'platform': 'windows',
-        'desktop': True
-    }
-)
+CORS(app)
 
 def parse_student_info(html_content):
+    # Standardizing HTML for regex
     clean_html = html_content.replace('\n', ' ')
     
-    # Debug: Print a small snippet of HTML to see if we actually got a page or a block screen
-    print(f"--- HTML Snippet (First 500 chars) ---")
-    print(clean_html[:500])
-    print(f"---------------------------------------")
-
+    # Extract Full Name
     name_match = re.search(r'ชื่อ - นามสกุล[\s\S]*?<div[^>]*>(.*?)</div>', clean_html, re.IGNORECASE)
     full_name = None
     if name_match:
         full_name = name_match.group(1).replace('&nbsp;', ' ')
         full_name = re.sub(r'\s+', ' ', full_name).strip()
 
+    # Extract Class
     class_name = None
     row_match = re.search(r'<tr>[\s\S]*?ชั้น ม\.[\s\S]*?</tr>', clean_html, re.IGNORECASE)
     if row_match:
         span_match = re.search(r'<span[^>]*>(.*?)</span>', row_match.group(0), re.IGNORECASE)
         if span_match:
             class_name = span_match.group(1).replace('&nbsp;', ' ')
-            class_name = re.sub(r'\s+', ' ', class_name).strip()
-            class_name = class_name.replace(' / ', '/')
+            class_name = re.sub(r'\s+', ' ', class_name).strip().replace(' / ', '/')
 
     return {"fullName": full_name, "className": class_name}
 
@@ -45,31 +32,25 @@ def parse_student_info(html_content):
 def get_data():
     std_id = request.args.get('id')
     
-    # Debug: Track incoming request
     print(f"\n[INCOMING] Request for ID: {std_id}")
-    print(f"[HEADERS] {dict(request.headers)}")
 
     if not std_id or len(std_id) != 13:
-        print(f"[ERROR] Invalid ID length: {len(std_id) if std_id else 0}")
         return jsonify({"error": "Invalid 13-digit ID"}), 400
 
     try:
         url = f"https://psis.me/report_print/std_detail.php?idm={std_id}"
-        print(f"[SCRAPE] Fetching URL: {url}")
         
-        response = scraper.get(url)
+        # impersonate="chrome" is the magic part. 
+        # It makes the server think a real Windows Chrome 120 browser is visiting.
+        response = requests.get(url, impersonate="chrome")
         
-        # Debug: Check the status of the outgoing scrape
         print(f"[SCRAPE] Status Code: {response.status_code}")
         
         if response.status_code == 403:
-            print("[CRITICAL] Target website BLOCKED this server IP!")
-            return jsonify({"error": "Target website blocked the scraper (403)"}), 403
+            print("[CRITICAL] IP is still blocked. Proxy required.")
+            return jsonify({"error": "IP Blocked"}), 403
 
-        # Parse the HTML
         result = parse_student_info(response.text)
-        
-        print(f"[SUCCESS] Parsed Data: {result}")
         return jsonify(result)
 
     except Exception as e:
@@ -77,5 +58,4 @@ def get_data():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    print("Starting Flask Server on port 5000...")
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000)
