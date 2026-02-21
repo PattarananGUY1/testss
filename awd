@@ -1,0 +1,21 @@
+
+import cloudscraper
+
+# Create a CloudScraper instance (mimics browser behavior)
+scraper = cloudscraper.create_scraper()
+
+# Set up your proxy
+proxy = {
+    'http': 'http://dc798f3a3964a609e01a__cr.th;state.buriram;city.buriram;zip.31180;asn.17552:4abe1cf42087944d@gw.dataimpulse.com:10000',
+    'https': 'http://dc798f3a3964a609e01a__cr.th;state.buriram;city.buriram;zip.31180;asn.17552:4abe1cf42087944d@gw.dataimpulse.com:10000'
+}
+
+# Target a Cloudflare-protected website (example below: change as needed)
+url = 'https://psis.me/report_print/std_detail.php?idm=1309903765270'
+
+# Send the request through the proxy
+response = scraper.get(url, proxies=proxy)
+
+# Output the response
+print(response.status_code)
+print(response.text)  # print only the first 500 characters()
